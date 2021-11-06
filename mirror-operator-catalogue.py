@@ -29,12 +29,12 @@ parser.add_argument(
 parser.add_argument(
     "--registry-olm",
     metavar="REGISTRY",
-    required=True,
+    required=False,
     help="Registry to copy the operator images")
 parser.add_argument(
     "--registry-catalog",
     metavar="REGISTRY",
-    required=True,
+    required=False,
     help="Registry to copy the catalog image")
 parser.add_argument(
     "--catalog-version",
@@ -42,12 +42,12 @@ parser.add_argument(
     help="Tag for the catalog image")
 parser.add_argument(
     "--ocp-version",
-    default="4.6",
-    help="OpenShift Y Stream. Only use X.Y version do not use Z. Default 4.6")
+    default="4.8",
+    help="OpenShift Y Stream. Only use X.Y version do not use Z. Default 4.8")
 parser.add_argument(
     "--operator-channel",
-    default="4.6",
-    help="Operator Channel. Default 4.6")
+    default="4.8",
+    help="Operator Channel. Default 4.8")
 parser.add_argument(
     "--operator-image-name",
     default="redhat-operators",
@@ -106,6 +106,10 @@ parser.add_argument(
     "--custom-operator-catalog-name",
     default="custom-redhat-operators",
     help="custom operator catalog name")
+parser.add_argument(
+    "--to-dir",
+    default="",
+    help="local directory to mirror images to")
 
 args = parser.parse_args()
 
@@ -149,6 +153,8 @@ if args.custom_operator_catalog_image_url:
   print("--custom-operator-catalog-image-url is no longer supported. \n")
   print("Use --custom-operator-catalog-image-and-tag instead")
   exit(1)
+#elif args.to_dir != "":
+#  custom_redhat_operators_catalog_image_url = args.custom_operator_catalog_name + ":" +  args.catalog_version
 elif args.custom_operator_catalog_image_and_tag:
   custom_redhat_operators_catalog_image_url = args.registry_catalog + "/" + args.custom_operator_catalog_image_and_tag
 elif args.custom_operator_catalog_name:
@@ -327,11 +333,19 @@ def PruneCatalog(opm_cli_path, operators, run_temp):
   subprocess.run(cmd, shell=True, check=True)
   os.chdir(script_root_dir)
 
+#  if args.to_dir == "":
   print("Pushing custom catalogue " + custom_redhat_operators_catalog_image_url + "to registry...")
   cmd = "podman push " + custom_redhat_operators_catalog_image_url + " --tls-verify=false --authfile " + args.authfile
+#  else:
+#    print("Pushing custom catalogue " + custom_redhat_operators_catalog_image_url + "to directory...")
+#    cmd = "skopeo copy --all containers-storage:localhost/" + custom_redhat_operators_catalog_image_url + " dir:" + args.to_dir + "/catalog"
+
+  print("Running: " + cmd)
   subprocess.run(cmd, shell=True, check=True)
   print("Finished push")
 
+  if args.to_dir != "":
+    CopyImageToDestinationDirectory(custom_redhat_operators_catalog_image_url, args.to_dir, args.authfile)
 
 def GetImageListToMirror(operators, db_path):
   con = sqlite3.connect(db_path)
@@ -372,11 +386,21 @@ def GetImageListToMirror(operators, db_path):
 
       operator.operator_bundles.append(bundle)
 
-
+# oc extract does not work well with containers in local storage or exported to disk
+# use podman cp instead
 def ExtractIndexDb():
-  cmd = oc_cli_path + " image extract " + custom_redhat_operators_catalog_image_url
-  cmd += " -a " + args.authfile + " --path /database/index.db:" + run_root_dir + " --confirm --insecure"
-  subprocess.run(cmd, shell=True, check=True)
+  cmd = ""
+  if (args.to_dir == ""):
+    cmd += oc_cli_path + " image extract " + custom_redhat_operators_catalog_image_url
+    cmd += " -a " + args.authfile + " --path /database/index.db:" + run_root_dir + " --confirm --insecure"
+    subprocess.run(cmd, shell=True, check=True)
+  else:
+    cmd += "podman create --name custom " + custom_redhat_operators_catalog_image_url + " sh"
+    subprocess.run(cmd, shell=True, check=True)
+    cmd = "podman cp custom:/database/index.db " + run_root_dir
+    subprocess.run(cmd, shell=True, check=True)
+    cmd = "podman rm custom"
+    subprocess.run(cmd, shell=True, check=True)
 
   return os.path.join(run_root_dir, "index.db")
 
@@ -405,7 +429,7 @@ def MirrorImagesToLocalRegistry(images):
         " of " +
         str(image_count))
     if isBadImage(image) == False:
-      destUrl = ChangeBaseRegistryUrl(image)
+#      destUrl = ChangeBaseRegistryUrl(image)
       max_retries = 5
       retries = 0
       success = False
@@ -414,7 +438,11 @@ def MirrorImagesToLocalRegistry(images):
           print("RETRY ATTEMPT: " +  str(retries))
         try:
           print("Image: " + image)
-          CopyImageToDestinationRegistry(image, destUrl, args.authfile)
+          if (args.to_dir == ""):
+            destUrl = ChangeBaseRegistryUrl(image)
+            CopyImageToDestinationRegistry(image, destUrl, args.authfile)
+          else:
+            CopyImageToDestinationDirectory(image, args.to_dir, args.authfile)
           success = True
         except subprocess.CalledProcessError as e:
           print("ERROR Copying image: " + image)
@@ -502,7 +530,10 @@ def isBadImage(image):
 def ChangeBaseRegistryUrl(image_url):
   res = image_url.find("/")
   if res != -1:
-    return args.registry_olm + image_url[res:]
+    if args.to_dir == "":
+      return args.registry_olm + image_url[res:]
+    else:
+      return "file://" + image_url[res:]
   return args.registry_olm
 
 
@@ -516,6 +547,25 @@ def CopyImageToDestinationRegistry(
         sourceImageUrl, destinationImageUrl)
 
   subprocess.run(cmd_args, shell=True, check=True)
+
+def CopyImageToDestinationDirectory(
+        sourceImageUrl, destinationDir, authfile=None):
+
+  cmd_args = "oc image mirror --keep-manifest-list=true --filter-by-os='.*' --insecure=true"
+
+  # Remove tags and digest from DST. Mirror to disk doesn't want them
+  destinationImageUrl = re.sub('^.*?/', '', sourceImageUrl)
+  destinationImageUrl = re.sub('@sha256.*', '', destinationImageUrl)
+  destinationImageUrl = re.sub(':.*', '', destinationImageUrl)
+
+  if args.authfile:
+    cmd_args += " --registry-config={} --dir={} {} file://{}".format(authfile, destinationDir, sourceImageUrl, destinationImageUrl)
+  else:
+    cmd_args += " --dir={} {} file://{}".format(destinationDir, sourceImageUrl, destinationImageUrl)
+
+  print("Running: " + cmd_args)
+  subprocess.run(cmd_args, shell=True, check=True)
+
 
 # Get a Mapping of source to mirror images
 def GetSourceToMirrorMapping(images):
