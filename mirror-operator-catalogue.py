@@ -325,7 +325,7 @@ def GetFieldValue(data, field):
 def PruneCatalog(opm_cli_path, operators, run_temp):
   
   operator_list = GetListOfCommaDelimitedOperatorList(operators)
-  cmd = opm_cli_path + " index prune -f " + redhat_operators_catalog_image_url
+  cmd = opm_cli_path + " index prune --permissive -f " + redhat_operators_catalog_image_url
   cmd += " -p " + operator_list # local-storage-operator,cluster-logging,kubevirt-hyperconverged "
   cmd += " -t " + custom_redhat_operators_catalog_image_url
   print("Running: " + cmd)
