@@ -8,4 +8,8 @@ then
   exit 1
 fi
 
-sed -i "s|file://|${1}|g" publish/olm-icsp.yaml
+DST=$(grep -A 1 -m 1 mirrors publish/olm-icsp.yaml | tail -1 | tr -d ' ' | tr -d '-' | cut -d\/ -f1)
+
+sed -i "s|${DST}|${1}|g" publish/olm-icsp.yaml
+sed -i 's|///|/|g' publish/olm-icsp.yaml
+sed -i 's|//|/|g' publish/olm-icsp.yaml
