@@ -111,8 +111,13 @@ parser.add_argument(
     default="",
     help="local directory to mirror images to")
 
-args = parser.parse_args()
-
+try:
+  args = parser.parse_args()
+except Exception as exc:
+  print("An exception occurred while parsing arguements list")
+  print(exc)
+  sys.exit(1)
+  
 # Global Variables
 if args.run_dir != "":
   script_root_dir = args.run_dir
@@ -287,7 +292,7 @@ def GetWhiteListedOperators():
 
     return operator_list
 
-  except () as exc:
+  except Exception as exc:
     print("An exception occurred while reading operator list file")
     print(exc)
     sys.exit(1)
@@ -363,7 +368,7 @@ def GetImageListToMirror(operators, db_path):
       cmd = "select operatorbundle_name from channel_entry where package_name like '" + operator.name + "' and channel_name like '" + channel + "' and operatorbundle_name like '%" + version + "%';"
       result = cur.execute(cmd).fetchall()
 
-      if len(result) == 1:
+      if len(result) > 0:
         bundle_name = result[0][0]
 
       bundle = OperatorBundle(bundle_name, version)
