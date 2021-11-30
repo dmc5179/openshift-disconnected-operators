@@ -8,12 +8,13 @@ CATALOG="redhat"
 OPERATORS="advanced-cluster-management aws-efs-csi-driver-operator cincinnati-operator cluster-logging compliance-operator container-security-operator file-integrity-operator elasticsearch-operator local-storage-operator nfd ocs-operator openshift-gitops-operator openshift-special-resource-operator openshift-pipelines-operator-rh openshift-jenkins-operator quay-bridge-operator quay-operator rhacs-operator rhsso-operator"
 REGISTRY="bastion.danclark.io:5000"
 DIR="/opt/openshift/mirror"
+PULL_SECRET="/home/ec2-user/pull-secret.txt"
 
 for operator in ${OPERATORS}
 do
 
   ./mirror-operator-catalogue.py \
-    --authfile /opt/openshift/pull-secret.txt \
+    --authfile ${PULL_SECRET} \
     --ocp-version ${OCP_VERSION} \
     --operator-channel ${OCP_VERSION} \
     --operator-catalog-image-url registry.redhat.io/redhat/${CATALOG}-operator-index \
@@ -30,7 +31,7 @@ do
   mkdir ${DIR}
 
   ./mirror-operator-catalogue.py \
-    --authfile /opt/openshift/pull-secret.txt \
+    --authfile ${PULL_SECRET} \
     --ocp-version ${OCP_VERSION} \
     --operator-channel ${OCP_VERSION} \
     --operator-catalog-image-url registry.redhat.io/redhat/${CATALOG}-operator-index \
