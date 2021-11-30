@@ -10,3 +10,4 @@ __pycache__
 launch*
 test.py
 notes.txt
+*.swp
